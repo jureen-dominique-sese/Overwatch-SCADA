@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Overwatch SCADA - Fault Locator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    :root {
+      --accent: #0078d4;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #222;
+      --muted: #666;
+      --border: #e0e0e0;
+      --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); font-family: 'Segoe UI', sans-serif; }
+
+    .layout { display: flex; height: 100%; width: 100%; overflow: hidden; }
+    #map { flex: 3; height: 100%; border-right: 1px solid var(--border); }
+
+    .panel {
+      flex: 1;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+
+    header { font-size: 1.4rem; font-weight: 600; color: var(--accent); margin-bottom: 10px; }
+    h2 { font-size: 1rem; color: var(--accent); margin-bottom: 5px; }
+
+    #latest { background: #f0f3f9; border-radius: 8px; padding: 10px; font-size: 0.9rem; margin-bottom: 15px; }
+
+    button {
+      background: var(--accent); border: none; color: #fff;
+      padding: 8px 12px; border-radius: 6px; margin-top: 5px; width: 100%;
+      font-weight: 500; cursor: pointer; transition: 0.2s;
+    }
+
+    button:hover { background: #005a9e; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 10px; }
+    th, td { border: 1px solid var(--border); padding: 6px; text-align: center; }
+    th { background: #f4f6fa; color: var(--muted); }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 0.6; }
+      70% { transform: scale(2.3); opacity: 0; }
+      100% { transform: scale(1); opacity: 0; }
+    }
+
+    .pulse-circle {
+      width: 20px; height: 20px;
+      background: rgba(255, 0, 0, 0.3);
+      border-radius: 50%;
+      position: absolute;
+      animation: pulse 2s infinite;
+    }
+
+    .leaflet-popup-content-wrapper { background: #fff; color: var(--text); }
+  </style>
+</head>
+
+<body>
+  <div class="layout">
+    <div id="map"></div>
+    <div class="panel">
+      <header>Overwatch Fault Locator</header>
+
+      <div class="section">
+        <h2>Latest Fault</h2>
+        <div id="latest">Fetching data...</div>
+      </div>
+
+      <div class="section">
+        <h2>Controls</h2>
+        <button onclick="refreshData()">🔄 Refresh</button>
+        <button onclick="ackFault()">✔ Acknowledge</button>
+      </div>
+
+      <div class="section" style="flex: 1; overflow-y: auto;">
+        <h2>Logs</h2>
+        <table id="logTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Device</th>
+              <th>Distance (m)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let faultCircles = [];
+
+    function initMap() {
+      map = L.map('map').setView([13.41, 123.35], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+    }
+
+    async function refreshData() {
+      const data = await window.pywebview.api.get_latest_faults();
+      if (!data || data.length === 0) return;
+
+      const latest = data[data.length - 1];
+      document.getElementById("latest").innerHTML = `
+        Report <b>${latest.reportID}</b><br>
+        Device: ${latest.deviceID}<br>
+        Distance: ${latest.distance} m<br>
+        ${latest.date} ${latest.time}
+      `;
+
+      // Update table
+      const tbody = document.querySelector("#logTable tbody");
+      tbody.innerHTML = "";
+      data.slice(-20).reverse().forEach(d => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${d.reportID}</td>
+          <td>${d.deviceID}</td>
+          <td>${d.distance}</td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      // Clear old circles
+      faultCircles.forEach(c => map.removeLayer(c));
+      faultCircles = [];
+
+      // Draw fault radius with pulse
+      data.forEach(d => {
+        const circle = L.circle([d.lat, d.lng], {
+          color: '#ff0000',
+          fillColor: '#ff6666',
+          fillOpacity: 0.3,
+          radius: d.distance
+        }).addTo(map);
+
+        circle.bindPopup(`
+          <b>Device:</b> ${d.deviceID}<br>
+          <b>Report:</b> ${d.reportID}<br>
+          <b>Radius:</b> ${d.distance} m<br>
+          <b>Time:</b> ${d.time}
+        `);
+
+        const pulsingIcon = L.divIcon({
+          html: '<div class="pulse-circle"></div>',
+          className: ''
+        });
+        L.marker([d.lat, d.lng], { icon: pulsingIcon }).addTo(map);
+
+        faultCircles.push(circle);
+      });
+
+      map.setView([latest.lat, latest.lng], 13);
+    }
+
+    function ackFault() {
+      const id = prompt("Enter Fault ID to acknowledge:");
+      if (id) alert(`Fault ${id} acknowledged.`);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      initMap();
+      refreshData();
+      setInterval(refreshData, 5000);
+    });
+  </script>
+</body>
+</html>
