@@ -76,14 +76,23 @@ class Api:
             
             # Format the alert message
             message = (
-                f"{severity_emoji.get(fault['sev'], '⚠️')} *OVERWATCH ALERT*\n\n"
-                f"🆔 *ID:* `{fault['id']}`\n"
-                f"📡 *Device:* {fault['device']}\n"
-                f"📏 *Distance:* {fault['dist']}m\n"
-                f"🚨 *Severity:* *{fault['sev']}*\n"
-                f"📅 *Time:* {fault['date']} {fault['time']}\n"
-                f"📍 *Location:* [{fault['lat']}, {fault['lng']}](https://www.google.com/maps?q={fault['lat']},{fault['lng']})\n\n"
-                f"⚡ _Bicol Region Power Grid Monitoring_"
+                f"⚡ *FAULT DETECTION SYSTEM ALERT*\n"
+                f"{'═' * 35}\n\n"
+                f"🔴 *SEVERITY LEVEL:* {fault['sev']}\n"
+                f"📋 *REPORT ID:* `{fault['id']}`\n"
+                f"⏰ *TIMESTAMP:* {fault['date']} @ {fault['time']}\n\n"
+                f"🏭 *EQUIPMENT DETAILS*\n"
+                f"├─ Device: {fault['device']}\n"
+                f"├─ Fault Distance: {fault['dist']}m\n"
+                f"└─ GPS Coordinates: {fault['lat']}, {fault['lng']}\n\n"
+                f"📍 *LOCATION MAPPING*\n"
+                f"[View Fault Location on Map](https://www.google.com/maps?q={fault['lat']},{fault['lng']})\n\n"
+                f"⚠️ *ACTION REQUIRED*\n"
+                f"Immediate investigation and acknowledgment needed.\n"
+                f"Dispatch field crew to affected area.\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"_Overwatch SCADA System_\n"
+                f"_(c) 2025, Delas Llagas, Sese, Valenzuela_"
             )
             
             # Send to all configured chat IDs
@@ -613,7 +622,7 @@ function init(){
     
     drawSubstations();
     drawCoverageAreas();
-    ref();setInterval(ref,8000);
+    ref();setInterval(ref,3000);
     }catch(e){console.error('Init error:',e);}
   }
 
