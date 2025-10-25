@@ -1,7 +1,6 @@
 """
 Overwatch SCADA - Enhanced with Multiple Map Types & Transmission Linessad
 """
-
 import webview
 import requests
 import csv
@@ -9,10 +8,17 @@ import io
 from datetime import datetime, timedelta
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import asyncio
+from telegram import Bot
+from telegram.error import TelegramError
 
 SHEET_ID = "1f1OMSgWDZs7p7oxvsLQhNiWytlKpWaj1PLIOQgJKyKU"
 SHEET_NAME = "logger"
 CREDENTIALS_FILE = "credentials.json"
+
+# TELEGRAM CONFIGURATION
+TELEGRAM_BOT_TOKEN = "7853460988:AAH3eIhrYLcu9gmVzVu2Xq-hAgs1pUJk-wU"  # Replace with your bot token from @BotFather
+TELEGRAM_CHAT_IDS = ["6493927838"]  # Replace with your chat ID from @userinfobot
 
 
 class Api:
@@ -20,9 +26,13 @@ class Api:
         self.cache = []
         self.gc = None
         self.worksheet = None
+        self.telegram_enabled = False
+        self.last_alerted_faults = set()  # Track which faults we've already alerted
         self._init_gspread()
+        self._init_telegram()
 
     def _init_gspread(self):
+        """Initialize Google Sheets connection"""
         try:
             scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
@@ -30,70 +40,228 @@ class Api:
             self.worksheet = self.gc.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
             print("✓ Connected to Google Sheets")
         except Exception as e:
-            print(f"⚠ Connection failed: {e}")
+            print(f"⚠ Google Sheets connection failed: {e}")
+
+    def _init_telegram(self):
+        """Initialize Telegram bot"""
+        try:
+            if TELEGRAM_BOT_TOKEN != "YOUR_BOT_TOKEN_HERE" and TELEGRAM_CHAT_IDS[0] != "YOUR_CHAT_ID_HERE":
+                # Test the bot connection
+                asyncio.run(self._test_telegram_connection())
+                self.telegram_enabled = True
+                print("✓ Telegram bot initialized and ready")
+            else:
+                print("⚠ Telegram not configured - update TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS")
+        except Exception as e:
+            print(f"⚠ Telegram initialization failed: {e}")
+            self.telegram_enabled = False
+
+    async def _test_telegram_connection(self):
+        """Test if telegram bot token is valid"""
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        bot_info = await bot.get_me()
+        print(f"✓ Bot connected: @{bot_info.username}")
+
+    async def _send_telegram_message(self, fault):
+        """Send telegram alert for a fault (async)"""
+        try:
+            bot = Bot(token=TELEGRAM_BOT_TOKEN)
+            
+            # Severity emoji mapping
+            severity_emoji = {
+                "CRITICAL": "🔴",
+                "WARNING": "🟡",
+                "INFO": "🔵"
+            }
+            
+            # Format the alert message
+            message = (
+                f"{severity_emoji.get(fault['sev'], '⚠️')} *OVERWATCH ALERT*\n\n"
+                f"🆔 *ID:* `{fault['id']}`\n"
+                f"📡 *Device:* {fault['device']}\n"
+                f"📏 *Distance:* {fault['dist']}m\n"
+                f"🚨 *Severity:* *{fault['sev']}*\n"
+                f"📅 *Time:* {fault['date']} {fault['time']}\n"
+                f"📍 *Location:* [{fault['lat']}, {fault['lng']}](https://www.google.com/maps?q={fault['lat']},{fault['lng']})\n\n"
+                f"⚡ _Bicol Region Power Grid Monitoring_"
+            )
+            
+            # Send to all configured chat IDs
+            for chat_id in TELEGRAM_CHAT_IDS:
+                try:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=message,
+                        parse_mode='Markdown',
+                        disable_web_page_preview=False
+                    )
+                    print(f"✓ Telegram alert sent to chat {chat_id} for fault {fault['id']}")
+                except TelegramError as e:
+                    print(f"✗ Failed to send to {chat_id}: {e}")
+                    
+        except Exception as e:
+            print(f"❌ Telegram send error: {e}")
+
+    def send_telegram_alert(self, fault):
+        """Synchronous wrapper for sending telegram alerts"""
+        if not self.telegram_enabled:
+            print("⚠ Telegram alerts disabled - check configuration")
+            return {"ok": False, "err": "Telegram not enabled"}
+        
+        try:
+            # Run async function in new event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._send_telegram_message(fault))
+            loop.close()
+            return {"ok": True}
+        except Exception as e:
+            print(f"❌ Error sending Telegram alert: {e}")
+            return {"ok": False, "err": str(e)}
 
     def get_faults(self):
+        """Fetch faults from Google Sheets and send alerts for new ones"""
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={SHEET_NAME}"
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             reader = csv.reader(io.StringIO(response.text))
-            next(reader)
+            next(reader)  # Skip header
             data = []
 
             for row in reader:
                 try:
                     if len(row) < 7:
                         continue
+                        
                     dist = float(row[4])
                     sev = "CRITICAL" if dist > 2000 else "WARNING" if dist > 1000 else "INFO"
                     status = row[7] if len(row) > 7 else ""
-                    data.append({
-                        "id": row[0], "date": row[1], "time": row[2], "device": row[3],
-                        "dist": dist, "lat": float(row[5]), "lng": float(row[6]),
-                        "status": status, "mod": row[8] if len(row) > 8 else "",
-                        "ack": status.lower() in ["acknowledged", "resolved", "fixed"], "sev": sev
-                    })
-                except:
+                    
+                    fault = {
+                        "id": row[0],
+                        "date": row[1],
+                        "time": row[2],
+                        "device": row[3],
+                        "dist": dist,
+                        "lat": float(row[5]),
+                        "lng": float(row[6]),
+                        "status": status,
+                        "mod": row[8] if len(row) > 8 else "",
+                        "ack": status.lower() in ["acknowledged", "resolved", "fixed"],
+                        "sev": sev
+                    }
+                    data.append(fault)
+                    
+                    # 🔔 AUTO TELEGRAM ALERT LOGIC
+                    # Send alert if:
+                    # 1. Severity is CRITICAL or WARNING
+                    # 2. Not yet acknowledged
+                    # 3. Haven't sent alert for this fault before
+                    if fault['sev'] in ["CRITICAL", "WARNING"] and not fault['ack']:
+                        fault_key = f"{fault['id']}_{fault['date']}_{fault['time']}"
+                        if fault_key not in self.last_alerted_faults:
+                            print(f"🔔 New {fault['sev']} fault detected: {fault['id']}")
+                            self.send_telegram_alert(fault)
+                            self.last_alerted_faults.add(fault_key)
+                            
+                except Exception as e:
+                    print(f"⚠ Error processing row: {e}")
                     continue
+                    
             self.cache = data
             return data
-        except:
+            
+        except Exception as e:
+            print(f"⚠ Error fetching faults: {e}")
             return self.cache
 
     def ack_fault(self, rid, status, name):
+        """Acknowledge a fault by updating Google Sheets"""
         if not self.worksheet:
-            return {"ok": False, "err": "Not connected"}
+            return {"ok": False, "err": "Not connected to Google Sheets"}
         try:
             cell = self.worksheet.find(rid)
             if not cell:
-                return {"ok": False, "err": "ID not found"}
+                return {"ok": False, "err": "Report ID not found"}
+            
             self.worksheet.update_cell(cell.row, 8, status)
             self.worksheet.update_cell(cell.row, 9, name)
+            print(f"✓ Fault {rid} acknowledged by {name} - Status: {status}")
+            
             return {"ok": True}
         except Exception as e:
+            print(f"❌ Acknowledgement error: {e}")
             return {"ok": False, "err": str(e)}
 
     def get_stats(self):
+        """Generate statistics from cached fault data"""
         if not self.cache:
             return {}
+            
         today = datetime.now().date()
         week_ago = today - timedelta(days=7)
-        stats = {"total": len(self.cache), "today": 0, "week": 0, "ack": 0, "pend": 0,
-                 "crit": 0, "warn": 0, "info": 0, "devs": {}}
+        
+        stats = {
+            "total": len(self.cache),
+            "today": 0,
+            "week": 0,
+            "ack": 0,
+            "pend": 0,
+            "crit": 0,
+            "warn": 0,
+            "info": 0,
+            "devs": {}
+        }
+        
         for f in self.cache:
             try:
                 fd = datetime.strptime(f["date"], "%Y-%m-%d").date()
+                
                 if fd == today:
                     stats["today"] += 1
                 if fd >= week_ago:
                     stats["week"] += 1
+                    
                 stats["ack" if f["ack"] else "pend"] += 1
-                stats[{"CRITICAL": "crit", "WARNING": "warn", "INFO": "info"}[f["sev"]]] += 1
+                
+                severity_map = {"CRITICAL": "crit", "WARNING": "warn", "INFO": "info"}
+                stats[severity_map[f["sev"]]] += 1
+                
                 stats["devs"][f["device"]] = stats["devs"].get(f["device"], 0) + 1
             except:
                 pass
+                
         return stats
+    
+    def get_telegram_status(self):
+        """Get telegram configuration status for UI"""
+        return {
+            "enabled": self.telegram_enabled,
+            "bot_configured": TELEGRAM_BOT_TOKEN != "YOUR_BOT_TOKEN_HERE",
+            "chat_configured": TELEGRAM_CHAT_IDS[0] != "YOUR_CHAT_ID_HERE",
+            "chat_ids": TELEGRAM_CHAT_IDS if self.telegram_enabled else [],
+            "alerts_sent": len(self.last_alerted_faults)
+        }
+    
+    def test_telegram(self):
+        """Send a test Telegram message"""
+        if not self.telegram_enabled:
+            return {"ok": False, "err": "Telegram not configured"}
+        
+        test_fault = {
+            "id": "TEST-001",
+            "device": "Test Device",
+            "dist": 1500,
+            "sev": "WARNING",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "lat": 13.621775,
+            "lng": 123.194824
+        }
+        
+        print("📤 Sending test Telegram alert...")
+        return self.send_telegram_alert(test_fault)
 
 
 HTML = """<!DOCTYPE html>
@@ -102,437 +270,91 @@ HTML = """<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-:root{
-  --bg:#1e1e1e;
-  --bg-secondary:#252526;
-  --bg-tertiary:#2d2d30;
-  --panel:#252526;
-  --text:#cccccc;
-  --text-secondary:#858585;
-  --border:#3e3e42;
-  --accent:#007acc;
-  --accent-hover:#1c97ea;
-  --crit:#f48771;
-  --warn:#cca700;
-  --info:#4fc1ff;
-  --ok:#89d185;
-  --input-bg:#3c3c3c;
-}
-[dark]{
-  --bg:#0d1117;
-  --bg-secondary:#161b22;
-  --bg-tertiary:#21262d;
-  --panel:#161b22;
-  --border:#30363d;
-  --accent:#58a6ff;
-  --input-bg:#0d1117;
-}
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,-apple-system,sans-serif}
+:root{--bg:#1e1e1e;--bg-secondary:#252526;--bg-tertiary:#2d2d30;--panel:#252526;--text:#cccccc;--text-secondary:#858585;--border:#3e3e42;--accent:#007acc;--accent-hover:#1c97ea;--crit:#f48771;--warn:#cca700;--info:#4fc1ff;--ok:#89d185;--input-bg:#3c3c3c}
+[dark]{--bg:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--panel:#161b22;--border:#30363d;--accent:#58a6ff;--input-bg:#0d1117}
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Consolas,'Courier New',monospace}
 body{background:var(--bg);color:var(--text);overflow:hidden;font-size:13px;line-height:1.5}
-.top{
-  background:var(--bg-secondary);
-  border-bottom:1px solid var(--border);
-  padding:0 20px;
-  height:40px;
-  display:flex;
-  align-items:center;
-  gap:20px;
-}
-.top-title{
-  font-weight:600;
-  color:var(--text);
-  margin-right:auto;
-  font-size:13px;
-  letter-spacing:0.3px;
-}
-.top-btn{
-  padding:6px 14px;
-  cursor:pointer;
-  border-radius:3px;
-  font-size:12px;
-  color:var(--text-secondary);
-  transition:all 0.15s ease;
-  border:1px solid transparent;
-}
-.top-btn:hover{
-  background:var(--bg-tertiary);
-  color:var(--text);
-  border-color:var(--border);
-}
-.tabs{
-  background:var(--bg-secondary);
-  border-bottom:1px solid var(--border);
-  display:flex;
-  padding:0 20px;
-  gap:4px;
-}
-.tab{
-  padding:12px 20px;
-  cursor:pointer;
-  border-bottom:2px solid transparent;
-  font-size:13px;
-  color:var(--text-secondary);
-  transition:all 0.15s ease;
-  position:relative;
-}
-.tab:hover{
-  background:var(--bg-tertiary);
-  color:var(--text);
-}
-.tab.on{
-  color:var(--accent);
-  border-bottom-color:var(--accent);
-  background:var(--bg);
-}
+.top{background:var(--bg-secondary);border-bottom:1px solid var(--border);padding:0 20px;height:48px;display:flex;align-items:center;gap:20px}
+.top-title{font-weight:500;color:var(--text);margin-right:auto;font-size:13px;letter-spacing:0.3px;display:flex;align-items:center;gap:8px}
+.top-btn{padding:8px 16px;cursor:pointer;border-radius:2px;font-size:12px;color:var(--text-secondary);transition:all 0.15s;border:1px solid transparent;font-weight:400}
+.top-btn:hover{background:var(--bg-tertiary);color:var(--text);border-color:var(--border)}
+.tabs{background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;padding:0 20px;gap:2px}
+.tab{padding:12px 20px;cursor:pointer;border-bottom:2px solid transparent;font-size:13px;color:var(--text-secondary);transition:all 0.15s;font-weight:400}
+.tab:hover{background:var(--bg-tertiary);color:var(--text)}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);background:var(--bg)}
 .main{display:flex;height:calc(100vh - 111px)}
 .content{display:none;flex:1}
 .content.on{display:flex}
 .map-view{display:flex;width:100%;position:relative;background:var(--bg)}
 #map{flex:1}
-.map-ctrl{
-  position:absolute;
-  top:16px;
-  right:356px;
-  z-index:1000;
-  background:var(--panel);
-  border-radius:4px;
-  border:1px solid var(--border);
-  box-shadow:0 4px 12px rgba(0,0,0,0.4);
-  overflow:hidden;
-  min-width:200px;
-}
-.map-ctrl-title{
-  padding:10px 14px;
-  background:var(--bg-tertiary);
-  color:var(--text);
-  font-weight:600;
-  font-size:11px;
-  text-transform:uppercase;
-  letter-spacing:0.5px;
-  border-bottom:1px solid var(--border);
-}
-.map-ctrl-opt{
-  padding:10px 14px;
-  cursor:pointer;
-  font-size:12px;
-  border-bottom:1px solid var(--border);
-  display:flex;
-  align-items:center;
-  gap:10px;
-  color:var(--text);
-  transition:background 0.15s ease;
-}
+.map-ctrl{position:absolute;top:16px;right:380px;z-index:1000;background:var(--panel);border-radius:3px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.5);overflow:hidden;min-width:200px}
+.map-ctrl-title{padding:10px 14px;background:var(--bg-tertiary);color:var(--text);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--border)}
+.map-ctrl-opt{padding:10px 14px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;color:var(--text);transition:background 0.15s}
 .map-ctrl-opt:last-child{border-bottom:none}
 .map-ctrl-opt:hover{background:var(--bg-tertiary)}
-.map-ctrl-opt.on{
-  background:var(--bg-tertiary);
-  color:var(--accent);
-  border-left:2px solid var(--accent);
-  padding-left:12px;
-}
-.side{
-  width:340px;
-  background:var(--panel);
-  border-left:1px solid var(--border);
-  overflow-y:auto;
-  padding:20px;
-  display:flex;
-  flex-direction:column;
-  gap:20px;
-}
-.side h3{
-  font-size:12px;
-  color:var(--text-secondary);
-  text-transform:uppercase;
-  letter-spacing:0.5px;
-  margin-bottom:12px;
-  font-weight:600;
-}
-.box{
-  background:var(--bg-tertiary);
-  border-radius:4px;
-  padding:14px;
-  font-size:12px;
-  line-height:1.6;
-  border:1px solid var(--border);
-}
+.map-ctrl-opt.on{background:var(--bg-tertiary);color:var(--accent);border-left:2px solid var(--accent);padding-left:12px}
+.side{width:360px;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:20px}
+.side h3{font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;font-weight:600}
+.box{background:var(--bg-tertiary);border-radius:3px;padding:14px;font-size:12px;line-height:1.6;border:1px solid var(--border)}
 .box strong{color:var(--accent);font-weight:600}
-.btn{
-  width:100%;
-  padding:10px;
-  border:1px solid var(--border);
-  border-radius:4px;
-  cursor:pointer;
-  font-size:12px;
-  font-weight:500;
-  margin-top:8px;
-  transition:all 0.15s ease;
-  background:var(--bg-tertiary);
-  color:var(--text);
-}
-.btn:hover{
-  background:var(--accent);
-  color:#fff;
-  border-color:var(--accent);
-}
+.btn{width:100%;padding:10px;border:1px solid var(--border);border-radius:3px;cursor:pointer;font-size:12px;font-weight:500;margin-top:8px;transition:all 0.15s;background:var(--bg-tertiary);color:var(--text)}
+.btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn-1{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn-1:hover{background:var(--accent-hover)}
 .btn-2{background:var(--bg-tertiary);color:var(--text)}
 .btn-2:hover{background:var(--input-bg)}
 .btn-ok{background:var(--ok);color:#000;border-color:var(--ok);font-weight:600}
 .btn-ok:hover{opacity:0.85}
-.tog{
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:8px;
-  background:var(--input-bg);
-  border-color:var(--border);
-}
-.tog.on{
-  background:var(--ok);
-  color:#000;
-  border-color:var(--ok);
-  font-weight:600;
-}
+.tog{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--input-bg);border-color:var(--border)}
+.tog.on{background:var(--ok);color:#000;border-color:var(--ok);font-weight:600}
 .stats-view{padding:28px;overflow-y:auto;width:100%;background:var(--bg)}
-.stats-view h2{
-  margin-bottom:24px;
-  color:var(--text);
-  font-size:18px;
-  font-weight:600;
-  letter-spacing:0.3px;
-}
-.stat-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
-  gap:16px;
-  margin-bottom:28px;
-}
-.stat{
-  background:var(--panel);
-  border-radius:4px;
-  padding:20px;
-  border:1px solid var(--border);
-  border-left:3px solid var(--accent);
-}
+.stats-view h2{margin-bottom:24px;color:var(--text);font-size:18px;font-weight:600;letter-spacing:0.3px}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:28px}
+.stat{background:var(--panel);border-radius:3px;padding:20px;border:1px solid var(--border);border-left:3px solid var(--accent);transition:transform 0.15s}
+.stat:hover{transform:translateY(-2px)}
 .stat.crit{border-left-color:var(--crit)}
 .stat.warn{border-left-color:var(--warn)}
 .stat.ok{border-left-color:var(--ok)}
-.stat-label{
-  font-size:11px;
-  color:var(--text-secondary);
-  margin-bottom:8px;
-  text-transform:uppercase;
-  letter-spacing:0.5px;
-  font-weight:600;
-}
-.stat-val{
-  font-size:32px;
-  font-weight:700;
-  color:var(--text);
-}
-.chart-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(400px,1fr));
-  gap:16px;
-}
-.chart{
-  background:var(--panel);
-  border-radius:4px;
-  padding:20px;
-  border:1px solid var(--border);
-}
-.chart h3{
-  font-size:13px;
-  color:var(--text);
-  margin-bottom:16px;
-  font-weight:600;
-}
-.logs-view{
-  padding:20px;
-  display:flex;
-  flex-direction:column;
-  gap:16px;
-  overflow-y:auto;
-  width:100%;
-  background:var(--bg);
-}
-.filters{
-  display:flex;
-  gap:12px;
-  flex-wrap:wrap;
-  background:var(--panel);
-  padding:16px;
-  border-radius:4px;
-  border:1px solid var(--border);
-}
-.inp{
-  flex:1;
-  min-width:200px;
-  padding:8px 12px;
-  border:1px solid var(--border);
-  border-radius:4px;
-  font-size:12px;
-  background:var(--input-bg);
-  color:var(--text);
-  transition:border-color 0.15s ease;
-}
-.inp:focus{
-  outline:none;
-  border-color:var(--accent);
-}
-.sel{
-  padding:8px 12px;
-  border:1px solid var(--border);
-  border-radius:4px;
-  font-size:12px;
-  background:var(--input-bg);
-  color:var(--text);
-  cursor:pointer;
-}
-.sel:focus{
-  outline:none;
-  border-color:var(--accent);
-}
+.stat-label{font-size:11px;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600}
+.stat-val{font-size:32px;font-weight:700;color:var(--text)}
+.chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px}
+.chart{background:var(--panel);border-radius:3px;padding:20px;border:1px solid var(--border)}
+.chart h3{font-size:13px;color:var(--text);margin-bottom:16px;font-weight:600}
+.logs-view{padding:20px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;width:100%;background:var(--bg)}
+.filters{display:flex;gap:12px;flex-wrap:wrap;background:var(--panel);padding:16px;border-radius:3px;border:1px solid var(--border)}
+.inp{flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:3px;font-size:12px;background:var(--input-bg);color:var(--text);transition:border-color 0.15s}
+.inp:focus{outline:none;border-color:var(--accent)}
+.sel{padding:8px 12px;border:1px solid var(--border);border-radius:3px;font-size:12px;background:var(--input-bg);color:var(--text);cursor:pointer}
+.sel:focus{outline:none;border-color:var(--accent)}
 .btn-sm{padding:8px 14px;font-size:12px}
-table{
-  width:100%;
-  border-collapse:collapse;
-  background:var(--panel);
-  border-radius:4px;
-  overflow:hidden;
-  border:1px solid var(--border);
-}
-th,td{
-  padding:12px 16px;
-  text-align:left;
-  border-bottom:1px solid var(--border);
-  font-size:12px;
-}
-th{
-  background:var(--bg-tertiary);
-  font-weight:600;
-  cursor:pointer;
-  user-select:none;
-  color:var(--text-secondary);
-  text-transform:uppercase;
-  font-size:11px;
-  letter-spacing:0.5px;
-}
+table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:3px;overflow:hidden;border:1px solid var(--border)}
+th,td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);font-size:12px}
+th{background:var(--bg-tertiary);font-weight:600;cursor:pointer;user-select:none;color:var(--text-secondary);text-transform:uppercase;font-size:11px;letter-spacing:0.5px}
 th:hover{background:var(--input-bg)}
 tr:hover{background:var(--bg-tertiary)}
-.badge{
-  display:inline-block;
-  padding:4px 9px;
-  border-radius:3px;
-  font-size:10px;
-  font-weight:600;
-  text-transform:uppercase;
-  letter-spacing:0.3px;
-}
+.badge{display:inline-block;padding:4px 9px;border-radius:3px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
 .badge.crit{background:var(--crit);color:#000}
 .badge.warn{background:var(--warn);color:#000}
 .badge.info{background:var(--info);color:#000}
-.status{
-  background:var(--bg-secondary);
-  border-top:1px solid var(--border);
-  padding:0 20px;
-  display:flex;
-  align-items:center;
-  gap:20px;
-  font-size:11px;
-  height:31px;
-  color:var(--text-secondary);
-}
-.dot{
-  width:8px;
-  height:8px;
-  border-radius:50%;
-  background:var(--ok);
-  animation:dot 2s infinite;
-}
+.status{background:var(--bg-secondary);border-top:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:20px;font-size:11px;height:31px;color:var(--text-secondary)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:dot 2s infinite}
 @keyframes dot{0%,100%{opacity:1}50%{opacity:0.4}}
 .dot.err{background:var(--crit)}
-.modal{
-  display:none;
-  position:fixed;
-  top:0;
-  left:0;
-  width:100%;
-  height:100%;
-  background:rgba(0,0,0,0.75);
-  align-items:center;
-  justify-content:center;
-  z-index:999;
-  backdrop-filter:blur(4px);
-}
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(4px)}
 .modal.on{display:flex}
-.mbox{
-  background:var(--panel);
-  padding:28px;
-  border-radius:6px;
-  width:420px;
-  border:1px solid var(--border);
-  box-shadow:0 8px 32px rgba(0,0,0,0.6);
-}
-.mbox h3{
-  margin-bottom:20px;
-  font-size:16px;
-  font-weight:600;
-  color:var(--text);
-}
+.mbox{background:var(--panel);padding:28px;border-radius:4px;width:420px;border:1px solid var(--border);box-shadow:0 8px 32px rgba(0,0,0,0.6)}
+.mbox h3{margin-bottom:20px;font-size:16px;font-weight:600;color:var(--text)}
 .fg{margin-bottom:16px}
-.fg label{
-  display:block;
-  margin-bottom:6px;
-  font-size:12px;
-  font-weight:500;
-  color:var(--text-secondary);
-  text-transform:uppercase;
-  letter-spacing:0.3px;
-}
-.fg input,.fg select{
-  width:100%;
-  padding:10px 12px;
-  border:1px solid var(--border);
-  border-radius:4px;
-  font-size:13px;
-  background:var(--input-bg);
-  color:var(--text);
-  transition:border-color 0.15s ease;
-}
-.fg input:focus,.fg select:focus{
-  outline:none;
-  border-color:var(--accent);
-}
+.fg label{display:block;margin-bottom:6px;font-size:12px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px}
+.fg input,.fg select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:3px;font-size:13px;background:var(--input-bg);color:var(--text);transition:border-color 0.15s}
+.fg input:focus,.fg select:focus{outline:none;border-color:var(--accent)}
 .mact{display:flex;gap:12px;margin-top:20px}
-.pulse{
-  width:12px;
-  height:12px;
-  border-radius:50%;
-  position:absolute;
-  animation:pul 2s infinite;
-}
-@keyframes pul{
-  0%{transform:scale(1);opacity:0.6}
-  70%{transform:scale(2.5);opacity:0}
-  100%{opacity:0}
-}
+.pulse{width:12px;height:12px;border-radius:50%;position:absolute;animation:pul 2s infinite}
+@keyframes pul{0%{transform:scale(1);opacity:0.6}70%{transform:scale(2.5);opacity:0}100%{opacity:0}}
 .pulse.r{background:rgba(244,135,113,0.6)}
 .pulse.b{background:rgba(0,122,204,0.6)}
 .pulse.o{background:rgba(204,167,0,0.6)}
-.flash{
-  position:fixed;
-  top:0;
-  left:0;
-  width:100%;
-  height:100%;
-  background:var(--crit);
-  opacity:0;
-  pointer-events:none;
-  z-index:998;
-}
+.flash{position:fixed;top:0;left:0;width:100%;height:100%;background:var(--crit);opacity:0;pointer-events:none;z-index:998}
 .flash.on{animation:fla 0.4s 3}
 @keyframes fla{0%,100%{opacity:0}50%{opacity:0.15}}
 .chk{margin-right:6px;cursor:pointer}
@@ -540,6 +362,7 @@ tr:hover{background:var(--bg-tertiary)}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px}
 ::-webkit-scrollbar-thumb:hover{background:var(--text-secondary)}
+@keyframes subGlow{0%,100%{opacity:0.4;transform:scale(1)}50%{opacity:0.8;transform:scale(1.2)}}
 </style>
 </head><body>
 
@@ -549,7 +372,7 @@ tr:hover{background:var(--bg-tertiary)}
   <div class="top-title">⚡ Overwatch SCADA - Region 5 Bicol</div>
   <div class="top-btn" onclick="exp()">📥 Export</div>
   <div class="top-btn" onclick="ref()">🔄 Refresh</div>
-  <div class="top-btn" onclick="dark()">🌙 Dark</div>
+  <div class="top-btn" onclick="dark()">🌙 Darker</div>
 </div>
 
 <div class="tabs">
@@ -590,17 +413,84 @@ tr:hover{background:var(--bg-tertiary)}
       </div>
       
       <div class="side">
-        <div><h3>📍 Latest</h3><div class="box" id="latest">Loading...</div></div>
-        <div><h3>🎮 Actions</h3>
-          <button class="btn tog" id="monitor" onclick="togMon()">📍 Monitor: OFF</button>
-          <button class="btn btn-1" onclick="ref()">🔄 Refresh</button>
-          <button class="btn btn-ok" onclick="showAck()">✔ Acknowledge</button>
-          <button class="btn btn-2" onclick="zAll()">🎯 View All</button>
+  <div>
+    <h3>ℹ️ About</h3>
+    <div class="box" style="font-size:11px;line-height:1.8">
+      <strong style="display:block;margin-bottom:8px;font-size:12px;color:var(--accent)">Overwatch SCADA</strong>
+      <div style="color:var(--text-secondary);margin-bottom:12px">
+        Real-time monitoring system for electrical fault detection and management in Region 5 Bicol.
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+        <strong style="font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Developed By:</strong>
+        <div style="margin-top:6px;color:var(--text)">
+          • Mark Joseph Delas Llagas<br>
+          • Jureen Dominique Sese<br>
+          • Justin Valenzuela
         </div>
-        <div><h3>🔔 Alerts</h3>
-          <button class="btn tog on" id="sound" onclick="togSnd()">🔊 Sound: ON</button>
+        <div style="margin-top:8px;font-size:10px;color:var(--text-secondary)">
+          BS Electrical Engineering<br>
+          Bicol University College of Engineering
         </div>
       </div>
+    </div>
+  </div>
+
+  <div>
+    <h3>📖 Quick Guide</h3>
+    <div class="box" style="font-size:11px;line-height:1.7">
+      <div style="margin-bottom:10px">
+        <strong style="color:var(--accent)">🗺️ Map View</strong>
+        <div style="color:var(--text-secondary);margin-top:4px">
+          • Click markers to view fault details<br>
+          • Use map controls to change layers<br>
+          • Toggle transmission lines & substations
+        </div>
+      </div>
+      <div style="margin-bottom:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <strong style="color:var(--accent)">✔ Acknowledgement</strong>
+        <div style="color:var(--text-secondary);margin-top:4px">
+          • Click "Acknowledge" button<br>
+          • Enter Report ID and your name<br>
+          • Select status and submit
+        </div>
+      </div>
+      <div style="margin-bottom:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <strong style="color:var(--accent)">📊 Statistics</strong>
+        <div style="color:var(--text-secondary);margin-top:4px">
+          • View fault trends and metrics<br>
+          • Analyze by severity and device<br>
+          • Track resolution rates
+        </div>
+      </div>
+      <div style="padding-top:10px;border-top:1px solid var(--border)">
+        <strong style="color:var(--accent)">🔍 Logs</strong>
+        <div style="color:var(--text-secondary);margin-top:4px">
+          • Search and filter fault records<br>
+          • Sort by any column<br>
+          • Export data to CSV
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3>📍 Latest Fault</h3>
+    <div class="box" id="latest">Loading...</div>
+  </div>
+
+  <div>
+    <h3>🎮 Actions</h3>
+    <button class="btn tog" id="monitor" onclick="togMon()">📍 Monitor: OFF</button>
+    <button class="btn btn-1" onclick="ref()">🔄 Refresh</button>
+    <button class="btn btn-ok" onclick="showAck()">✔ Acknowledge</button>
+    <button class="btn btn-2" onclick="zAll()">🎯 View All</button>
+  </div>
+
+  <div>
+    <h3>🔔 Alerts</h3>
+    <button class="btn tog on" id="sound" onclick="togSnd()">🔊 Sound: ON</button>
+  </div>
+</div>
     </div>
   </div>
 
