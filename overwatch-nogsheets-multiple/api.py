@@ -1,9 +1,11 @@
 """
-Overwatch SCADA - Backend API Module (Updated with Config)
+Overwatch SCADA - Backend API Module (Updated with Config & State Persistence)
 """
 import requests
 import csv
 import io
+import json
+import os
 from datetime import datetime, timedelta
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -27,16 +29,61 @@ except ImportError:
     TELEGRAM_CHAT_IDS = ["6493927838"]
     SEVERITY_THRESHOLDS = {"CRITICAL": 2000, "WARNING": 1000, "INFO": 0}
 
+# Define the path for the persistent state file
+STATE_FILE = "overwatch_state.json"
 
 class OverwatchAPI:
     def __init__(self):
-        self.cache = []
+        self.state_file = STATE_FILE
+        # Load state from JSON, which now includes cache AND alerted faults
+        loaded_state = self._load_state()
+        self.cache = loaded_state['faults']
+        self.last_alerted_faults = set(loaded_state['alerted_fault_keys'])
+        
         self.gc = None
         self.worksheet = None
         self.telegram_enabled = False
-        self.last_alerted_faults = set()
+        
         self._init_gspread()
         self._init_telegram()
+        
+        # Perform an initial check on startup in case sheet is newer than cache
+        if self.cache:
+            print(f"✓ Loaded {len(self.cache)} faults and {len(self.last_alerted_faults)} alerted faults from state. Checking for updates...")
+            self.check_for_updates()
+        else:
+            print("No cache found. Performing initial fetch...")
+            self.check_for_updates()
+
+
+    def _load_state(self):
+        """Load the last known state (faults and alerts) from the JSON file."""
+        default_state = {"faults": [], "alerted_fault_keys": []}
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r') as f:
+                    data = json.load(f)
+                    # Ensure both keys exist
+                    data.setdefault('faults', [])
+                    data.setdefault('alerted_fault_keys', [])
+                    return data
+            except json.JSONDecodeError:
+                print(f"⚠ Could not decode state file. Starting fresh.")
+                return default_state
+        return default_state
+
+    def _save_state(self):
+        """Save the current state (faults and alerts) to the JSON file."""
+        try:
+            state_data = {
+                "faults": self.cache,
+                "alerted_fault_keys": list(self.last_alerted_faults) # Convert set to list for JSON
+            }
+            with open(self.state_file, 'w') as f:
+                json.dump(state_data, f, indent=2)
+            print(f"✓ Saved {len(self.cache)} faults and {len(self.last_alerted_faults)} alerted faults to state file.")
+        except IOError as e:
+            print(f"⚠ Error saving state file: {e}")
 
     def _init_gspread(self):
         """Initialize Google Sheets connection"""
@@ -127,16 +174,27 @@ class OverwatchAPI:
             return "WARNING"
         else:
             return "INFO"
+    
+    def get_cached_data(self):
+        """API endpoint to return the data currently in the cache."""
+        return self.cache
 
-    def get_faults(self):
-        """Fetch faults from Google Sheets"""
+    def check_for_updates(self):
+        """
+        Fetch faults from Google Sheets, compare to cache, and save if new.
+        This is the main "check for updates" function.
+        """
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={SHEET_NAME}"
+        
+        old_latest_fault_id = self.cache[-1]['id'] if self.cache else None
+        
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             reader = csv.reader(io.StringIO(response.text))
             next(reader)  # Skip header
             data = []
+            new_alerts_sent = False # Flag to see if we need to save the state
 
             for row in reader:
                 try:
@@ -165,21 +223,39 @@ class OverwatchAPI:
                     # Auto-alert logic
                     if fault['sev'] in ["CRITICAL", "WARNING"] and not fault['ack']:
                         fault_key = f"{fault['id']}_{fault['date']}_{fault['time']}"
+                        # This check is now persistent across restarts
                         if fault_key not in self.last_alerted_faults:
-                            print(f"🔔 New {fault['sev']} fault: {fault['id']}")
+                            print(f"🔔 New {fault['sev']} fault detected: {fault['id']}")
                             self.send_telegram_alert(fault)
                             self.last_alerted_faults.add(fault_key)
+                            new_alerts_sent = True # Mark that we need to save the state
 
                 except Exception as e:
                     print(f"⚠ Error processing row: {e}")
                     continue
 
-            self.cache = data
-            return data
+            new_latest_fault_id = data[-1]['id'] if data else None
+            
+            # Check if new data is actually different
+            if new_latest_fault_id != old_latest_fault_id:
+                print("✨ New data found. Updating cache.")
+                self.cache = data
+                self._save_state()  # Save new cache AND new alerts list
+                return {"hasNewData": True, "data": self.cache}
+            
+            # If no new faults, but new alerts were sent (e.g., old fault seen for first time)
+            elif new_alerts_sent:
+                print("...No new faults, but new alerts sent. Saving alert state.")
+                self._save_state() # Save the updated alerts list
+                return {"hasNewData": False} # No new *fault data* to reload UI
+            
+            else:
+                print("...No new data.")
+                return {"hasNewData": False}
 
         except Exception as e:
             print(f"⚠ Error fetching faults: {e}")
-            return self.cache
+            return {"hasNewData": False, "error": str(e)}
 
     def ack_fault(self, rid, status, name):
         """Acknowledge a fault"""
@@ -193,14 +269,23 @@ class OverwatchAPI:
             self.worksheet.update_cell(cell.row, 8, status)
             self.worksheet.update_cell(cell.row, 9, name)
             print(f"✓ Fault {rid} acknowledged by {name}")
+            
+            # After acknowledging, force a data refresh to update the cache and state file
+            self.check_for_updates()
+            
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "err": str(e)}
 
     def get_stats(self):
-        """Generate statistics"""
+        """Generate statistics *from the current cache*."""
         if not self.cache:
-            return {}
+            # Load from state if cache is empty
+            loaded_state = self._load_state()
+            self.cache = loaded_state['faults']
+            self.last_alerted_faults = set(loaded_state['alerted_fault_keys'])
+            if not self.cache:
+                return {} # Return empty if state is also empty
 
         today = datetime.now().date()
         week_ago = today - timedelta(days=7)
