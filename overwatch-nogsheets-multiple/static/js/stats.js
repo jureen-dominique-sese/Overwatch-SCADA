@@ -5,6 +5,7 @@
 
 let charts = {};
 let statsData = null;
+let isInitialLoad = true;
 
 // Initialize statistics
 async function initStats() {
@@ -18,9 +19,16 @@ async function initStats() {
 // Refresh statistics
 async function refreshStats() {
   try {
+<<<<<<< HEAD
+    if (!forceRefresh && !isInitialLoad) return;
+    
+    const stats = await API.getStats(forceRefresh || isInitialLoad);
+=======
     const stats = await API.getStats();
+>>>>>>> parent of 8c5760d (WORKING CACHE)
     if(!stats) return;
     
+    isInitialLoad = false;
     statsData = stats;
     updateStatCards(stats);
     updateCharts(stats);
@@ -33,6 +41,23 @@ async function refreshStats() {
   }
 }
 
+<<<<<<< HEAD
+window.onCacheUpdate = () => refreshStats(true);
+
+async function initStats() {
+  try {
+    await refreshStats(true);
+  } catch(e) {
+    console.error('Stats initialization error:', e);
+  }
+}
+
+window.addEventListener('load', () => {
+  initStats();
+});
+
+=======
+>>>>>>> parent of 8c5760d (WORKING CACHE)
 // Update stat cards
 function updateStatCards(stats) {
   const grid = document.getElementById('statGrid');

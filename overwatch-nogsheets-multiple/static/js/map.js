@@ -10,6 +10,13 @@ let monitorMode = false;
 let soundEnabled = true;
 let lastFaultId = null;
 let allFaults = [];
+function hasLoadedBefore() {
+  return localStorage.getItem('map_loaded') === 'true'; // Change key per file
+}
+
+function markAsLoaded() {
+  localStorage.setItem('map_loaded', 'true'); // Change key per file
+}
 
 // Geographic data
 const TRANSMISSION_LINES = [
@@ -375,19 +382,24 @@ function updateLatestFault(fault) {
 // Refresh map data
 async function refreshMap() {
   try {
+<<<<<<< HEAD
+    if (!forceRefresh && !isInitialLoad) return;
+    
+    const faults = await API.getFaults(forceRefresh || isInitialLoad);
+=======
     const faults = await API.getFaults();
+>>>>>>> parent of 8c5760d (WORKING CACHE)
     if(!faults || !faults.length) return;
     
+    isInitialLoad = false;
     allFaults = faults;
     const latest = faults[faults.length - 1];
     
-    // Alert on new fault
     if(soundEnabled && lastFaultId && latest.id !== lastFaultId) {
       beep(latest.sev);
       flash();
     }
     
-    // Auto-zoom in monitor mode
     if(monitorMode && lastFaultId && latest.id !== lastFaultId) {
       map.setView([latest.lat, latest.lng], 14);
     }
@@ -404,6 +416,21 @@ async function refreshMap() {
   }
 }
 
+<<<<<<< HEAD
+window.onCacheUpdate = () => refreshMap(true);
+
+window.addEventListener('load', () => {
+  initMap();
+  refreshMap(true);
+});
+
+window.onCacheUpdate = function() {
+  refreshMap(false);  // Use cached data when other window updates
+};
+
+
+=======
+>>>>>>> parent of 8c5760d (WORKING CACHE)
 // Toggle monitor mode
 function toggleMonitor() {
   monitorMode = !monitorMode;

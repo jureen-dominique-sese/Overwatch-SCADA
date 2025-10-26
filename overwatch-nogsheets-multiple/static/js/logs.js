@@ -6,6 +6,7 @@
 let allLogs = [];
 let filteredLogs = [];
 let sortDirections = {};
+let isInitialLoad = true;
 
 // Initialize logs
 async function initLogs() {
@@ -19,9 +20,16 @@ async function initLogs() {
 // Refresh logs data
 async function refreshLogs() {
   try {
+<<<<<<< HEAD
+    if (!forceRefresh && !isInitialLoad) return;
+    
+    const faults = await API.getFaults(forceRefresh || isInitialLoad);
+=======
     const faults = await API.getFaults();
+>>>>>>> parent of 8c5760d (WORKING CACHE)
     if(!faults) return;
     
+    isInitialLoad = false;
     allLogs = faults;
     filteredLogs = [...faults];
     
@@ -36,6 +44,23 @@ async function refreshLogs() {
   }
 }
 
+<<<<<<< HEAD
+window.onCacheUpdate = () => refreshLogs(true);
+
+async function initLogs() {
+  try {
+    await refreshLogs(true);
+  } catch(e) {
+    console.error('Logs initialization error:', e);
+  }
+}
+
+window.addEventListener('load', () => {
+  initLogs();
+});
+
+=======
+>>>>>>> parent of 8c5760d (WORKING CACHE)
 // Update device filter options
 function updateDeviceFilter(faults) {
   const select = document.getElementById('fdev');
