@@ -12,7 +12,8 @@ HTML_DIR = os.path.join(BASE_DIR, 'static', 'html')
 
 def get_html_path(filename):
     """Get absolute path for HTML file"""
-    return os.path.join(HTML_DIR, filename)
+    path = os.path.join(HTML_DIR, filename)
+    return f"file://{path}"  # Add file:// protocol
 
 
 class WindowManager:
