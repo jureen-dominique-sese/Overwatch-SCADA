@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Overwatch SCADA - Statistics</title>
+  <link rel="stylesheet" href="../css/shared.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .stats-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .stats-main {
+      flex: 1;
+      padding: 28px;
+      overflow-y: auto;
+      background: var(--bg);
+    }
+    
+    .stats-main h2 {
+      margin-bottom: 24px;
+      color: var(--accent);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    
+    .stat {
+      background: var(--panel);
+      border-radius: 3px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      transition: transform 0.15s;
+    }
+    
+    .stat:hover {
+      transform: translateY(-2px);
+    }
+    
+    .stat.crit {
+      border-left-color: var(--crit);
+    }
+    
+    .stat.warn {
+      border-left-color: var(--warn);
+    }
+    
+    .stat.ok {
+      border-left-color: var(--ok);
+    }
+    
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    
+    .stat-val {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 16px;
+    }
+    
+    .chart {
+      background: var(--panel);
+      border-radius: 3px;
+      padding: 20px;
+      border: 1px solid var(--border);
+    }
+    
+    .chart h3 {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="stats-container">
+    <div class="top">
+      <div class="top-title">📊 Overwatch SCADA - Statistics</div>
+      <button class="top-btn" onclick="window.location.href='index.html'">🏠 Dashboard</button>
+      <button class="top-btn" onclick="window.location.href='map.html'">🗺️ Map</button>
+      <button class="top-btn" onclick="window.location.href='logs.html'">📋 Logs</button>
+      <button class="top-btn" onclick="refreshStats()">🔄 Refresh</button>
+      <button class="top-btn" onclick="toggleDarkMode()">🌙 Theme</button>
+    </div>
+    
+    <div class="stats-main">
+      <h2>📊 System Statistics</h2>
+      
+      <div class="stat-grid" id="statGrid">
+        <!-- Stats will be dynamically populated -->
+      </div>
+      
+      <div class="chart-grid">
+        <div class="chart">
+          <h3>Severity Distribution</h3>
+          <canvas id="chartSeverity"></canvas>
+        </div>
+        <div class="chart">
+          <h3>Faults by Device</h3>
+          <canvas id="chartDevice"></canvas>
+        </div>
+        <div class="chart">
+          <h3>Status Overview</h3>
+          <canvas id="chartStatus"></canvas>
+        </div>
+        <div class="chart">
+          <h3>Weekly Trend</h3>
+          <canvas id="chartTrend"></canvas>
+        </div>
+      </div>
+    </div>
+    
+    <div class="status">
+      <div style="display:flex; align-items:center; gap:5px">
+        <div class="dot" id="dot"></div>
+        <span id="conn">Connected</span>
+      </div>
+      <div>|</div>
+      <div id="upd">Last: --:--:--</div>
+      <div>|</div>
+      <div id="cnt">Total: 0</div>
+      <div style="margin-left:auto">👤 Operator</div>
+    </div>
+  </div>
+  
+  <script src="../js/shared.js"></script>
+  <script src="../js/stats.js"></script>
+</body>
+</html>

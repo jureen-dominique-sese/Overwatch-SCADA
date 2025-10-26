@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Overwatch SCADA - Logs</title>
+  <link rel="stylesheet" href="../css/shared.css">
+  <style>
+    .logs-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .logs-main {
+      flex: 1;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+      background: var(--bg);
+    }
+    
+    .filters {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--panel);
+      padding: 16px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    
+    .inp {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 12px;
+      background: var(--input-bg);
+      color: var(--text);
+      transition: border-color 0.15s;
+    }
+    
+    .inp:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    .sel {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 12px;
+      background: var(--input-bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    
+    .sel:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    .btn-sm {
+      padding: 8px 14px;
+      font-size: 12px;
+    }
+    
+    .table-wrapper {
+      overflow-x: auto;
+      background: var(--panel);
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    
+    th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    
+    th:hover {
+      background: var(--input-bg);
+    }
+    
+    tbody tr:hover {
+      background: var(--bg-tertiary);
+    }
+    
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="logs-container">
+    <div class="top">
+      <div class="top-title">📋 Overwatch SCADA - Logs & Records</div>
+      <button class="top-btn" onclick="window.location.href='index.html'">🏠 Dashboard</button>
+      <button class="top-btn" onclick="window.location.href='map.html'">🗺️ Map</button>
+      <button class="top-btn" onclick="window.location.href='stats.html'">📊 Stats</button>
+      <button class="top-btn" onclick="exportLogs()">📥 Export</button>
+      <button class="top-btn" onclick="refreshLogs()">🔄 Refresh</button>
+      <button class="top-btn" onclick="toggleDarkMode()">🌙 Theme</button>
+    </div>
+    
+    <div class="logs-main">
+      <div class="filters">
+        <input class="inp" id="search" placeholder="🔍 Search by ID or Device..." oninput="filterLogs()">
+        <select class="sel" id="fdev" onchange="filterLogs()">
+          <option value="">All Devices</option>
+        </select>
+        <select class="sel" id="fstat" onchange="filterLogs()">
+          <option value="">All Status</option>
+          <option value="p">Pending</option>
+          <option value="a">Acknowledged</option>
+        </select>
+        <select class="sel" id="fsev" onchange="filterLogs()">
+          <option value="">All Severity</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="WARNING">Warning</option>
+          <option value="INFO">Info</option>
+        </select>
+        <button class="btn btn-2 btn-sm" onclick="clearFilters()">🗑️ Clear</button>
+      </div>
+      
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortTable(0)">ID ⇅</th>
+              <th onclick="sortTable(1)">Date ⇅</th>
+              <th onclick="sortTable(2)">Time ⇅</th>
+              <th onclick="sortTable(3)">Device ⇅</th>
+              <th onclick="sortTable(4)">Distance ⇅</th>
+              <th onclick="sortTable(5)">Severity ⇅</th>
+              <th onclick="sortTable(6)">Status ⇅</th>
+              <th onclick="sortTable(7)">Modified ⇅</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <!-- Rows will be dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <div class="status">
+      <div style="display:flex; align-items:center; gap:5px">
+        <div class="dot" id="dot"></div>
+        <span id="conn">Connected</span>
+      </div>
+      <div>|</div>
+      <div id="upd">Last: --:--:--</div>
+      <div>|</div>
+      <div id="cnt">Records: 0</div>
+      <div style="margin-left:auto">👤 Operator</div>
+    </div>
+  </div>
+  
+  <script src="../js/shared.js"></script>
+  <script src="../js/logs.js"></script>
+</body>
+</html>

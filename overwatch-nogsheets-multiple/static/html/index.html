@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Overwatch SCADA - Dashboard</title>
+  <link rel="stylesheet" href="../css/shared.css">
+  <style>
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .main-content {
+      flex: 1;
+      padding: 40px;
+      overflow-y: auto;
+    }
+    
+    .hero {
+      text-align: center;
+      margin-bottom: 50px;
+    }
+    
+    .hero h1 {
+      font-size: 32px;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    
+    .hero p {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    
+    .interface-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .interface-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 30px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .interface-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+      box-shadow: 0 8px 24px rgba(0, 122, 204, 0.2);
+    }
+    
+    .interface-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--accent);
+      transform: scaleY(0);
+      transition: transform 0.2s;
+    }
+    
+    .interface-card:hover::before {
+      transform: scaleY(1);
+    }
+    
+    .interface-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    
+    .interface-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    
+    .interface-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    
+    .quick-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 16px;
+      max-width: 1200px;
+      margin: 40px auto;
+    }
+    
+    .stat-card {
+      background: var(--bg-tertiary);
+      padding: 20px;
+      border-radius: 4px;
+      border-left: 3px solid var(--accent);
+    }
+    
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <div class="top">
+      <div class="top-title">⚡ Overwatch SCADA - Dashboard</div>
+      <button class="top-btn" onclick="refreshStats()">🔄 Refresh</button>
+      <button class="top-btn" onclick="toggleDarkMode()">🌙 Theme</button>
+    </div>
+    
+    <div class="main-content">
+      <div class="hero">
+        <h1>⚡ Overwatch SCADA</h1>
+        <p>Real-time Electrical Fault Detection & Management System</p>
+        <p style="font-size: 12px; margin-top: 8px;">Region 5 Bicol</p>
+      </div>
+      
+      <div class="quick-stats" id="quickStats">
+        <div class="stat-card">
+          <div class="stat-label">Total Faults</div>
+          <div class="stat-value">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Today</div>
+          <div class="stat-value">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pending</div>
+          <div class="stat-value">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Critical</div>
+          <div class="stat-value">--</div>
+        </div>
+      </div>
+      
+      <div class="interface-grid">
+        <div class="interface-card" onclick="openInterface('map')">
+          <div class="interface-icon">🗺️</div>
+          <div class="interface-title">Map Interface</div>
+          <div class="interface-desc">
+            Geospatial visualization of fault locations with interactive markers,
+            transmission lines, and substations overlay.
+          </div>
+        </div>
+        
+        <div class="interface-card" onclick="openInterface('stats')">
+          <div class="interface-icon">📊</div>
+          <div class="interface-title">Statistics Dashboard</div>
+          <div class="interface-desc">
+            Comprehensive analytics with charts, severity distribution,
+            and device-specific fault trends.
+          </div>
+        </div>
+        
+        <div class="interface-card" onclick="openInterface('logs')">
+          <div class="interface-icon">📋</div>
+          <div class="interface-title">Logs & Records</div>
+          <div class="interface-desc">
+            Searchable fault log table with filtering, sorting,
+            and acknowledgment management capabilities.
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="status">
+      <div style="display:flex; align-items:center; gap:5px">
+        <div class="dot" id="dot"></div>
+        <span id="conn">Connected</span>
+      </div>
+      <div>|</div>
+      <div id="upd">Last: --:--:--</div>
+      <div>|</div>
+      <div id="cnt">Interfaces: 3</div>
+      <div style="margin-left:auto">👤 Operator</div>
+    </div>
+  </div>
+  
+  <script src="../js/shared.js"></script>
+  <script>
+    async function refreshStats() {
+      try {
+        const stats = await API.getStats();
+        const cards = document.querySelectorAll('.stat-card .stat-value');
+        cards[0].textContent = stats.total || 0;
+        cards[1].textContent = stats.today || 0;
+        cards[2].textContent = stats.pend || 0;
+        cards[3].textContent = stats.crit || 0;
+        
+        updateStatusBar(true, stats.total, new Date().toLocaleTimeString());
+      } catch(e) {
+        console.error('Stats refresh error:', e);
+        updateStatusBar(false, 0, null);
+      }
+    }
+    
+    function openInterface(type) {
+      const urls = {
+        'map': 'map.html',
+        'stats': 'stats.html',
+        'logs': 'logs.html'
+      };
+      
+      // Open in new window (requires pywebview integration)
+      window.location.href = urls[type];
+    }
+    
+    // Auto-refresh stats
+    refreshStats();
+    setInterval(refreshStats, 5000);
+  </script>
+</body>
+</html>

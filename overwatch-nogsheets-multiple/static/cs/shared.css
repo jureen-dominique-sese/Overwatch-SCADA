@@ -1,0 +1,175 @@
+/* Overwatch SCADA - Shared Styles */
+:root {
+  --bg: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d30;
+  --panel: #252526;
+  --text: #cccccc;
+  --text-secondary: #858585;
+  --border: #3e3e42;
+  --accent: #007acc;
+  --accent-hover: #1c97ea;
+  --crit: #f48771;
+  --warn: #cca700;
+  --info: #4fc1ff;
+  --ok: #89d185;
+  --input-bg: #3c3c3c;
+}
+
+[dark] {
+  --bg: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --panel: #161b22;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --input-bg: #0d1117;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Consolas, 'Courier New', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Top Navigation Bar */
+.top {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.top-title {
+  font-weight: 500;
+  color: var(--text);
+  margin-right: auto;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.top-btn {
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  font-weight: 400;
+  background: none;
+}
+
+.top-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Buttons */
+.btn {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 8px;
+  transition: all 0.15s;
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+.btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-1 {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-1:hover {
+  background: var(--accent-hover);
+}
+
+.btn-ok {
+  background: var(--ok);
+  color: #000;
+  border-color: var(--ok);
+  font-weight: 600;
+}
+
+.btn-ok:hover {
+  opacity: 0.85;
+}
+
+/* Status Bar */
+.status {
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: 11px;
+  height: 31px;
+  color: var(--text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: dot 2s infinite;
+}
+
+@keyframes dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.dot.err {
+  background: var(--crit);
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.badge.crit { background: var(--crit); color: #000; }
+.badge.warn { background: var(--warn); color: #000; }
+.badge.info { background: var(--info); color: #000; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
