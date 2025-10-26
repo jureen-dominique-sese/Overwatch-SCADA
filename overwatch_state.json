@@ -116,12 +116,110 @@
       "mod": "Jureen",
       "ack": false,
       "sev": "CRITICAL"
+    },
+    {
+      "id": "4",
+      "date": "2025-10-25",
+      "time": "10:34:20",
+      "device": "DET-01",
+      "dist": 30000.0,
+      "lat": 14.0,
+      "lng": 123.7358,
+      "status": "Under Investigation",
+      "mod": "Jureen",
+      "ack": false,
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "4",
+      "date": "2025-10-25",
+      "time": "10:34:20",
+      "device": "DET-01",
+      "dist": 30000.0,
+      "lat": 12.15,
+      "lng": 123.7358,
+      "status": "Under Investigation",
+      "mod": "Jureen",
+      "ack": false,
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "7",
+      "date": "2025-10-25",
+      "time": "10:34:20",
+      "device": "DET-01",
+      "dist": 50000.0,
+      "lat": 12.18,
+      "lng": 123.7358,
+      "status": "Under Investigation",
+      "mod": "Jureen",
+      "ack": false,
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "18",
+      "date": "2025-10-25",
+      "time": "10:34:20",
+      "device": "DET-01",
+      "dist": 80000.0,
+      "lat": 12.45,
+      "lng": 123.7358,
+      "status": "Under Investigation",
+      "mod": "Jureen",
+      "ack": false,
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "25",
+      "date": "2025-10-25",
+      "time": "10:34:20",
+      "device": "DET-01",
+      "dist": 100000.0,
+      "lat": 12.45,
+      "lng": 123.7358,
+      "status": "Under Investigation",
+      "mod": "Jureen",
+      "ack": false,
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "",
+      "date": "2025-10-26",
+      "time": "9:54:06",
+      "device": "TEST_DEVICE_CRIT",
+      "dist": 2500.0,
+      "lat": 13.621775,
+      "lng": 123.194824,
+      "status": "Pending",
+      "mod": "",
+      "ack": false,
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "",
+      "date": "2025-10-26",
+      "time": "9:54:08",
+      "device": "TEST_DEVICE_WARN",
+      "dist": 1500.0,
+      "lat": 13.1539,
+      "lng": 123.7358,
+      "status": "Pending",
+      "mod": "",
+      "ack": false,
+      "sev": "WARNING"
+    },
+    {
+      "id": "",
+      "date": "2025-10-26",
+      "time": "9:54:08",
+      "device": "TEST_DEVICE_INFO",
+      "dist": 500.0,
+      "lat": 13.6211,
+      "lng": 123.1988,
+      "status": "Pending",
+      "mod": "",
+      "ack": false,
+      "sev": "INFO"
     }
-  ],
-  "alerted_fault_keys": [
-    "2_2025-10-25_10:34:20",
-    "1_2025-10-25_10:34:20",
-    "4_2025-10-25_10:34:20",
-    "5_2025-10-25_10:34:20"
   ]
 }
